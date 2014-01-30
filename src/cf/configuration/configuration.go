@@ -7,13 +7,15 @@ import (
 )
 
 type Configuration struct {
-	ConfigVersion           int
-	Target                  string
-	ApiVersion              string
-	AuthorizationEndpoint   string
-	LoggregatorEndPoint     string
-	AccessToken             string
-	RefreshToken            string
+	ConfigVersion         int
+	Target                string
+	ApiVersion            string
+	AuthorizationEndpoint string
+	LoggregatorEndPoint   string
+	AccessToken           string
+	RefreshToken          string
+	AuthorizationPrompts  map[string][]string // ?? is this authorization or authentication
+
 	OrganizationFields      cf.OrganizationFields
 	SpaceFields             cf.SpaceFields
 	ApplicationStartTimeout time.Duration // will be used as seconds

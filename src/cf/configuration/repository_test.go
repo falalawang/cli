@@ -86,6 +86,20 @@ func TestSetSpace(t *testing.T) {
 	})
 }
 
+func TestReadingPromptsFromJSON(t *testing.T) {
+	withConfigFixture(t, "with-auth-prompts", func() {
+		repo := NewConfigurationDiskRepository()
+		config, err := repo.Get()
+
+		assert.NoError(t, err)
+		prompts := config.AuthorizationPrompts
+		usernamePrompts := prompts["username"]
+		assert.Equal(t, usernamePrompts, []string{"text", "Email"})
+		passwordPrompts := prompts["password"]
+		assert.Equal(t, passwordPrompts, []string{"password", "Password"})
+	})
+}
+
 func TestClearTokens(t *testing.T) {
 	withFakeHome(t, func() {
 		org := cf.OrganizationFields{}
@@ -154,7 +168,7 @@ func TestNewConfigGivesYouCurrentVersionedConfig(t *testing.T) {
 		repo := NewConfigurationDiskRepository()
 		config, err := repo.Get()
 		assert.NoError(t, err)
-		assert.Equal(t, config.ConfigVersion, 2)
+		assert.Equal(t, config.ConfigVersion, 3)
 	})
 }
 

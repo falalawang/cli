@@ -48,33 +48,50 @@ func (repo RemoteEndpointRepository) UpdateEndpoint(endpoint string) (finalEndpo
 }
 
 func (repo RemoteEndpointRepository) attemptUpdate(endpoint string) (apiResponse net.ApiResponse) {
-	request, apiResponse := repo.gateway.NewRequest("GET", endpoint+"/v2/info", "", nil)
-	if apiResponse.IsNotSuccessful() {
-		return
-	}
-
 	serverResponse := new(struct {
 		ApiVersion            string `json:"api_version"`
 		AuthorizationEndpoint string `json:"authorization_endpoint"`
 		LoggregatorEndpoint   string `json:"logging_endpoint"`
 	})
-	_, apiResponse = repo.gateway.PerformRequestForJSONResponse(request, &serverResponse)
-	if apiResponse.IsNotSuccessful() {
-		return
-	}
+
+	apiResponse = repo.makeGETRequest(endpoint+"/v2/info", &serverResponse)
 
 	if endpoint != repo.config.Target {
 		repo.configRepo.ClearSession()
 	}
 
+	authUri := serverResponse.AuthorizationEndpoint
+
 	repo.config.Target = endpoint
 	repo.config.ApiVersion = serverResponse.ApiVersion
-	repo.config.AuthorizationEndpoint = serverResponse.AuthorizationEndpoint
+	repo.config.AuthorizationEndpoint = authUri
 	repo.config.LoggregatorEndPoint = serverResponse.LoggregatorEndpoint
+
+	if serverResponse.AuthorizationEndpoint != "" {
+		serverResponse := new(struct {
+			Prompts map[string][]string `json:"prompts"`
+		})
+		apiResponse = repo.makeGETRequest(authUri+"/login", &serverResponse)
+
+		repo.config.AuthorizationPrompts = serverResponse.Prompts
+	}
 
 	err := repo.configRepo.Save()
 	if err != nil {
 		apiResponse = net.NewApiResponseWithMessage(err.Error())
+	}
+	return
+}
+
+func (repo RemoteEndpointRepository) makeGETRequest(url string, serverResponse interface{}) (apiResponse net.ApiResponse) {
+	request, apiResponse := repo.gateway.NewRequest("GET", url, "", nil)
+	if apiResponse.IsNotSuccessful() {
+		return
+	}
+
+	_, apiResponse = repo.gateway.PerformRequestForJSONResponse(request, serverResponse)
+	if apiResponse.IsNotSuccessful() {
+		return
 	}
 	return
 }

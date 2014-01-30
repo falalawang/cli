@@ -12,7 +12,7 @@ import (
 const (
 	filePermissions      = 0600
 	dirPermissions       = 0700
-	currentConfigVersion = 2
+	currentConfigVersion = 3
 )
 
 var singleton *Configuration

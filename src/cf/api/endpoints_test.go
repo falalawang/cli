@@ -14,24 +14,45 @@ import (
 	"testing"
 )
 
-var validApiInfoEndpoint = func(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/v2/info" {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
+type endpoint struct {
+	Endpoint string
+}
 
-	infoResponse := `
+func (e *endpoint) requestHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/v2/info":
+		infoResponse := fmt.Sprintf(`
 {
   "name": "vcap",
   "build": "2222",
   "support": "http://support.cloudfoundry.com",
   "version": 2,
   "description": "Cloud Foundry sponsored by Pivotal",
-  "authorization_endpoint": "https://login.example.com",
+  "authorization_endpoint": "%s",
   "logging_endpoint": "wss://loggregator.foo.example.org:4443",
   "api_version": "42.0.0"
-} `
-	fmt.Fprintln(w, infoResponse)
+}`, e.Endpoint)
+		fmt.Fprintln(w, infoResponse)
+	case "/login":
+		infoResponse := `
+{
+ "timestamp":"2013-12-18T11:26:53-0700",
+ "app":{
+ 	"artifact":"cloudfoundry-identity-uaa",
+ 	"description":"User Account and Authentication Service",
+ 	"name":"UAA",
+ 	"version":"1.4.7"
+ },"commit_id":"2701cc8",
+ "prompts":{
+ 	"username":["text","Email"],
+ 	"password":["password","Password"]
+ }
+}`
+		fmt.Fprintln(w, infoResponse)
+	default:
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
 }
 
 func TestUpdateEndpointWhenUrlIsValidHttpsInfoEndpoint(t *testing.T) {
@@ -39,7 +60,11 @@ func TestUpdateEndpointWhenUrlIsValidHttpsInfoEndpoint(t *testing.T) {
 	configRepo.Delete()
 	configRepo.Login()
 
-	ts, repo := createEndpointRepoForUpdate(configRepo, validApiInfoEndpoint)
+	myEndpoint := new(endpoint)
+	ts := httptest.NewTLSServer(http.HandlerFunc(myEndpoint.requestHandler))
+	myEndpoint.Endpoint = ts.URL
+	repo := makeRepo(configRepo)
+
 	defer ts.Close()
 	org := cf.OrganizationFields{}
 	org.Name = "my-org"
@@ -49,7 +74,9 @@ func TestUpdateEndpointWhenUrlIsValidHttpsInfoEndpoint(t *testing.T) {
 	space.Name = "my-space"
 	space.Guid = "my-space-guid"
 
-	config, _ := configRepo.Get()
+	config, err := configRepo.Get()
+	assert.NoError(t, err)
+
 	config.OrganizationFields = org
 	config.SpaceFields = space
 
@@ -58,10 +85,15 @@ func TestUpdateEndpointWhenUrlIsValidHttpsInfoEndpoint(t *testing.T) {
 	savedConfig := testconfig.SavedConfiguration
 
 	assert.Equal(t, savedConfig.AccessToken, "")
-	assert.Equal(t, savedConfig.AuthorizationEndpoint, "https://login.example.com")
+	assert.Equal(t, savedConfig.AuthorizationEndpoint, ts.URL)
 	assert.Equal(t, savedConfig.LoggregatorEndPoint, "wss://loggregator.foo.example.org:4443")
 	assert.Equal(t, savedConfig.Target, ts.URL)
 	assert.Equal(t, savedConfig.ApiVersion, "42.0.0")
+	assert.Equal(t, savedConfig.AuthorizationPrompts, map[string][]string{
+		"username": []string{"text", "Email"},
+		"password": []string{"password", "Password"},
+	})
+
 	assert.False(t, savedConfig.HasOrganization())
 	assert.False(t, savedConfig.HasSpace())
 }
@@ -71,7 +103,7 @@ func TestUpdateEndpointWhenUrlIsAlreadyTargeted(t *testing.T) {
 	configRepo.Delete()
 	configRepo.Login()
 
-	ts, repo := createEndpointRepoForUpdate(configRepo, validApiInfoEndpoint)
+	ts, repo := createValidTestServerAndRepo(configRepo)
 	defer ts.Close()
 
 	org := cf.OrganizationFields{}
@@ -102,7 +134,7 @@ func TestUpdateEndpointWhenUrlIsMissingSchemeAndHttpsEndpointExists(t *testing.T
 	configRepo.Delete()
 	configRepo.Login()
 
-	ts, repo := createEndpointRepoForUpdate(configRepo, validApiInfoEndpoint)
+	ts, repo := createValidTestServerAndRepo(configRepo)
 	defer ts.Close()
 
 	schemelessURL := strings.Replace(ts.URL, "https://", "", 1)
@@ -114,7 +146,7 @@ func TestUpdateEndpointWhenUrlIsMissingSchemeAndHttpsEndpointExists(t *testing.T
 	savedConfig := testconfig.SavedConfiguration
 
 	assert.Equal(t, savedConfig.AccessToken, "")
-	assert.Equal(t, savedConfig.AuthorizationEndpoint, "https://login.example.com")
+	assert.Equal(t, savedConfig.AuthorizationEndpoint, ts.URL)
 	assert.Equal(t, savedConfig.Target, ts.URL)
 	assert.Equal(t, savedConfig.ApiVersion, "42.0.0")
 }
@@ -124,7 +156,7 @@ func TestUpdateEndpointWhenUrlIsMissingSchemeAndHttpEndpointExists(t *testing.T)
 	configRepo.Delete()
 	configRepo.Login()
 
-	ts, repo := createInsecureEndpointRepoForUpdate(configRepo, validApiInfoEndpoint)
+	ts, repo := createValidHTTPTestServerAndRepo(configRepo)
 	defer ts.Close()
 
 	schemelessURL := strings.Replace(ts.URL, "http://", "", 1)
@@ -137,7 +169,7 @@ func TestUpdateEndpointWhenUrlIsMissingSchemeAndHttpEndpointExists(t *testing.T)
 	savedConfig := testconfig.SavedConfiguration
 
 	assert.Equal(t, savedConfig.AccessToken, "")
-	assert.Equal(t, savedConfig.AuthorizationEndpoint, "https://login.example.com")
+	assert.Equal(t, savedConfig.AuthorizationEndpoint, ts.URL)
 	assert.Equal(t, savedConfig.Target, ts.URL)
 	assert.Equal(t, savedConfig.ApiVersion, "42.0.0")
 }
@@ -173,18 +205,25 @@ func TestUpdateEndpointWhenEndpointReturnsInvalidJson(t *testing.T) {
 	assert.True(t, apiResponse.IsNotSuccessful())
 }
 
-func createEndpointRepoForUpdate(configRepo testconfig.FakeConfigRepository, endpoint func(w http.ResponseWriter, r *http.Request)) (ts *httptest.Server, repo EndpointRepository) {
-	if endpoint != nil {
-		ts = httptest.NewTLSServer(http.HandlerFunc(endpoint))
-	}
+func createValidTestServerAndRepo(configRepo testconfig.FakeConfigRepository) (ts *httptest.Server, repo EndpointRepository) {
+	myEndpoint := new(endpoint)
+	ts = httptest.NewTLSServer(http.HandlerFunc(myEndpoint.requestHandler))
+	myEndpoint.Endpoint = ts.URL
+	repo = makeRepo(configRepo)
+	return
+}
+
+func createEndpointRepoForUpdate(configRepo testconfig.FakeConfigRepository, requestHandler func(w http.ResponseWriter, r *http.Request)) (ts *httptest.Server, repo EndpointRepository) {
+	ts = httptest.NewTLSServer(http.HandlerFunc(requestHandler))
 	return ts, makeRepo(configRepo)
 }
 
-func createInsecureEndpointRepoForUpdate(configRepo testconfig.FakeConfigRepository, endpoint func(w http.ResponseWriter, r *http.Request)) (ts *httptest.Server, repo EndpointRepository) {
-	if endpoint != nil {
-		ts = httptest.NewServer(http.HandlerFunc(endpoint))
-	}
-	return ts, makeRepo(configRepo)
+func createValidHTTPTestServerAndRepo(configRepo testconfig.FakeConfigRepository) (ts *httptest.Server, repo EndpointRepository) {
+	myEndpoint := new(endpoint)
+	ts = httptest.NewServer(http.HandlerFunc(myEndpoint.requestHandler))
+	myEndpoint.Endpoint = ts.URL
+	repo = makeRepo(configRepo)
+	return
 }
 
 func makeRepo(configRepo testconfig.FakeConfigRepository) (repo EndpointRepository) {
