@@ -71,6 +71,7 @@ func (ui *FakeUI) Ok() {
 func (ui *FakeUI) Failed(message string, args ...interface{}) {
 	ui.Say("FAILED")
 	ui.Say(message, args...)
+	panic("FAILED")
 	return
 }
 

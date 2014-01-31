@@ -9,6 +9,13 @@ import (
 var CommandDidPassRequirements bool
 
 func RunCommand(cmd commands.Command, ctxt *cli.Context, reqFactory *testreq.FakeReqFactory) {
+	defer func(){
+		errMsg := recover()
+		if errMsg != "FAILED" {
+			panic(errMsg)
+		}
+	}()
+
 	CommandDidPassRequirements = false
 
 	reqs, err := cmd.GetRequirements(reqFactory, ctxt)
