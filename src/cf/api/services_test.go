@@ -344,6 +344,82 @@ var _ = Describe("Testing with ginkgo", func() {
 		Expect(apiResponse.IsNotSuccessful()).To(BeTrue())
 		Expect(apiResponse.Message).To(Equal("Cannot delete service instance, apps are still bound to it"))
 	})
+
+	Describe("migrating service plans", func() {
+		It("returns an error when it cannot find a service plan by name", func() {
+			req := testapi.NewCloudControllerTestRequest(testnet.TestRequest{
+				Method:   "GET",
+				Path:     "/v2/service_plans",
+				Response: testnet.TestResponse{Status: http.StatusOK, Body: `{ "resources": [] }`},
+			})
+
+			ts, _, repo := createServiceRepo(mr.T(), []testnet.TestRequest{req})
+			defer ts.Close()
+
+			v1 := V1ServicePlanDescription{}
+			v2 := V2ServicePlanDescription{}
+			_, _, apiResponse := repo.FindServicePlanToMigrateByDescription(v1, v2)
+			Expect(apiResponse.IsNotSuccessful()).To(BeTrue())
+			Expect(apiResponse.Message).To(ContainSubstring("not found"))
+		})
+
+		It("returns the service plan guid when finding service plan by name", func() {
+			req := testapi.NewCloudControllerTestRequest(testnet.TestRequest{
+				Method:   "GET",
+				Path:     "/v2/service_plans",
+				Response: testnet.TestResponse{Status: http.StatusOK, Body: `{"resources":[{"metadata": {"guid": "v1-guid"},"entity": {"name": "v1-panda","service": {"entity": {"label": "v1-elephantsql","provider": "v1-elephantsql"}}}}, {"metadata": {"guid": "v2-guid"},"entity": {"name": "v2-panda","service": {"entity": {"label": "v2-elephantsql","provider": null}}}}]}`},
+			})
+
+			ts, _, repo := createServiceRepo(mr.T(), []testnet.TestRequest{req})
+			defer ts.Close()
+
+			v1 := V1ServicePlanDescription{
+				ServiceName:     "v1-elephantsql",
+				ServicePlanName: "v1-panda",
+				ServiceProvider: "v1-elephantsql",
+			}
+			v2 := V2ServicePlanDescription{
+				ServiceName:     "v2-elephantsql",
+				ServicePlanName: "v2-panda",
+			}
+			v1Guid, v2Guid, apiResponse := repo.FindServicePlanToMigrateByDescription(v1, v2)
+
+			Expect(apiResponse.IsSuccessful()).To(BeTrue())
+			Expect(v1Guid).To(Equal("v1-guid"))
+			Expect(v2Guid).To(Equal("v2-guid"))
+		})
+
+		It("migrates service plans from v1 to v2", func() {
+			req := testapi.NewCloudControllerTestRequest(testnet.TestRequest{
+				Method:   "PUT",
+				Path:     "/v2/service_plans/v1-guid/service_instances",
+				Matcher:  testnet.RequestBodyMatcher(`{"service_plan_guid":"v2-guid"}`),
+				Response: testnet.TestResponse{Status: http.StatusOK},
+			})
+
+			ts, _, repo := createServiceRepo(mr.T(), []testnet.TestRequest{req})
+			defer ts.Close()
+
+			apiResponse := repo.MigrateServicePlanFromV1ToV2("v1-guid", "v2-guid")
+			Expect(apiResponse.IsSuccessful()).To(BeTrue())
+		})
+
+		It("returns an error when migrating fails", func() {
+			req := testapi.NewCloudControllerTestRequest(testnet.TestRequest{
+				Method:   "PUT",
+				Path:     "/v2/service_plans/v1-guid/service_instances",
+				Matcher:  testnet.RequestBodyMatcher(`{"service_plan_guid":"v2-guid"}`),
+				Response: testnet.TestResponse{Status: http.StatusInternalServerError},
+			})
+
+			ts, _, repo := createServiceRepo(mr.T(), []testnet.TestRequest{req})
+			defer ts.Close()
+
+			apiResponse := repo.MigrateServicePlanFromV1ToV2("v1-guid", "v2-guid")
+			Expect(apiResponse.IsSuccessful()).To(BeFalse())
+		})
+	})
+
 	It("TestRenameService", func() {
 		path := "/v2/service_instances/my-service-instance-guid"
 		serviceInstance := models.ServiceInstance{}
