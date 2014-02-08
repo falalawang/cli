@@ -349,7 +349,7 @@ var _ = Describe("Testing with ginkgo", func() {
 		It("returns an error when it cannot find a service plan by name", func() {
 			req := testapi.NewCloudControllerTestRequest(testnet.TestRequest{
 				Method:   "GET",
-				Path:     "/v2/service_plans",
+				Path:     "/v2/service_plans?inline-relations-depth=1",
 				Response: testnet.TestResponse{Status: http.StatusOK, Body: `{ "resources": [] }`},
 			})
 
