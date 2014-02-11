@@ -54,12 +54,12 @@ type RouteRepository interface {
 }
 
 type CloudControllerRouteRepository struct {
-	config     *configuration.Configuration
+	config     configuration.Reader
 	gateway    net.Gateway
 	domainRepo DomainRepository
 }
 
-func NewCloudControllerRouteRepository(config *configuration.Configuration, gateway net.Gateway, domainRepo DomainRepository) (repo CloudControllerRouteRepository) {
+func NewCloudControllerRouteRepository(config configuration.Reader, gateway net.Gateway, domainRepo DomainRepository) (repo CloudControllerRouteRepository) {
 	repo.config = config
 	repo.gateway = gateway
 	repo.domainRepo = domainRepo
@@ -142,7 +142,7 @@ func (repo CloudControllerRouteRepository) findOneWithPath(path string) (route m
 
 func (repo CloudControllerRouteRepository) findNextWithPath(path string) (routes []models.Route, nextUrl string, apiResponse net.ApiResponse) {
 	routesResources := new(PaginatedRouteResources)
-	apiResponse = repo.gateway.GetResource(repo.config.Target+path, repo.config.AccessToken, routesResources)
+	apiResponse = repo.gateway.GetResource(repo.config.ApiEndpoint()+path, repo.config.AccessToken(), routesResources)
 	if apiResponse.IsNotSuccessful() {
 		return
 	}
@@ -156,15 +156,15 @@ func (repo CloudControllerRouteRepository) findNextWithPath(path string) (routes
 }
 
 func (repo CloudControllerRouteRepository) Create(host, domainGuid string) (createdRoute models.Route, apiResponse net.ApiResponse) {
-	return repo.CreateInSpace(host, domainGuid, repo.config.SpaceFields.Guid)
+	return repo.CreateInSpace(host, domainGuid, repo.config.SpaceFields().Guid)
 }
 
 func (repo CloudControllerRouteRepository) CreateInSpace(host, domainGuid, spaceGuid string) (createdRoute models.Route, apiResponse net.ApiResponse) {
-	path := fmt.Sprintf("%s/v2/routes?inline-relations-depth=1", repo.config.Target)
+	path := fmt.Sprintf("%s/v2/routes?inline-relations-depth=1", repo.config.ApiEndpoint())
 	data := fmt.Sprintf(`{"host":"%s","domain_guid":"%s","space_guid":"%s"}`, host, domainGuid, spaceGuid)
 
 	resource := new(RouteResource)
-	apiResponse = repo.gateway.CreateResourceForResponse(path, repo.config.AccessToken, strings.NewReader(data), resource)
+	apiResponse = repo.gateway.CreateResourceForResponse(path, repo.config.AccessToken(), strings.NewReader(data), resource)
 	if apiResponse.IsNotSuccessful() {
 		return
 	}
@@ -174,16 +174,16 @@ func (repo CloudControllerRouteRepository) CreateInSpace(host, domainGuid, space
 }
 
 func (repo CloudControllerRouteRepository) Bind(routeGuid, appGuid string) (apiResponse net.ApiResponse) {
-	path := fmt.Sprintf("%s/v2/apps/%s/routes/%s", repo.config.Target, appGuid, routeGuid)
-	return repo.gateway.UpdateResource(path, repo.config.AccessToken, nil)
+	path := fmt.Sprintf("%s/v2/apps/%s/routes/%s", repo.config.ApiEndpoint(), appGuid, routeGuid)
+	return repo.gateway.UpdateResource(path, repo.config.AccessToken(), nil)
 }
 
 func (repo CloudControllerRouteRepository) Unbind(routeGuid, appGuid string) (apiResponse net.ApiResponse) {
-	path := fmt.Sprintf("%s/v2/apps/%s/routes/%s", repo.config.Target, appGuid, routeGuid)
-	return repo.gateway.DeleteResource(path, repo.config.AccessToken)
+	path := fmt.Sprintf("%s/v2/apps/%s/routes/%s", repo.config.ApiEndpoint(), appGuid, routeGuid)
+	return repo.gateway.DeleteResource(path, repo.config.AccessToken())
 }
 
 func (repo CloudControllerRouteRepository) Delete(routeGuid string) (apiResponse net.ApiResponse) {
-	path := fmt.Sprintf("%s/v2/routes/%s", repo.config.Target, routeGuid)
-	return repo.gateway.DeleteResource(path, repo.config.AccessToken)
+	path := fmt.Sprintf("%s/v2/routes/%s", repo.config.ApiEndpoint(), routeGuid)
+	return repo.gateway.DeleteResource(path, repo.config.AccessToken())
 }

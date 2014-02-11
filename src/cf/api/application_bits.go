@@ -27,12 +27,12 @@ type ApplicationBitsRepository interface {
 }
 
 type CloudControllerApplicationBitsRepository struct {
-	config  *configuration.Configuration
+	config  configuration.Reader
 	gateway net.Gateway
 	zipper  cf.Zipper
 }
 
-func NewCloudControllerApplicationBitsRepository(config *configuration.Configuration, gateway net.Gateway, zipper cf.Zipper) (repo CloudControllerApplicationBitsRepository) {
+func NewCloudControllerApplicationBitsRepository(config configuration.Reader, gateway net.Gateway, zipper cf.Zipper) (repo CloudControllerApplicationBitsRepository) {
 	repo.config = config
 	repo.gateway = gateway
 	repo.zipper = zipper
@@ -88,7 +88,7 @@ func (repo CloudControllerApplicationBitsRepository) UploadApp(appGuid string, a
 }
 
 func (repo CloudControllerApplicationBitsRepository) uploadBits(appGuid string, zipFile *os.File) (apiResponse net.ApiResponse) {
-	url := fmt.Sprintf("%s/v2/apps/%s/bits", repo.config.Target, appGuid)
+	url := fmt.Sprintf("%s/v2/apps/%s/bits", repo.config.ApiEndpoint(), appGuid)
 
 	fileutils.TempFile("requests", func(requestFile *os.File, err error) {
 		if err != nil {
@@ -103,7 +103,7 @@ func (repo CloudControllerApplicationBitsRepository) uploadBits(appGuid string, 
 		}
 
 		var request *net.Request
-		request, apiResponse = repo.gateway.NewRequest("PUT", url, repo.config.AccessToken, requestFile)
+		request, apiResponse = repo.gateway.NewRequest("PUT", url, repo.config.AccessToken(), requestFile)
 		if apiResponse.IsNotSuccessful() {
 			return
 		}

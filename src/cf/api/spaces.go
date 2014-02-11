@@ -62,11 +62,11 @@ type SpaceRepository interface {
 }
 
 type CloudControllerSpaceRepository struct {
-	config  *configuration.Configuration
+	config  configuration.Reader
 	gateway net.Gateway
 }
 
-func NewCloudControllerSpaceRepository(config *configuration.Configuration, gateway net.Gateway) (repo CloudControllerSpaceRepository) {
+func NewCloudControllerSpaceRepository(config configuration.Reader, gateway net.Gateway) (repo CloudControllerSpaceRepository) {
 	repo.config = config
 	repo.gateway = gateway
 	return
@@ -77,7 +77,7 @@ func (repo CloudControllerSpaceRepository) ListSpaces(stop chan bool) (spacesCha
 	statusChan = make(chan net.ApiResponse, 1)
 
 	go func() {
-		path := fmt.Sprintf("/v2/organizations/%s/spaces", repo.config.OrganizationFields.Guid)
+		path := fmt.Sprintf("/v2/organizations/%s/spaces", repo.config.OrganizationFields().Guid)
 
 	loop:
 		for path != "" {
@@ -111,7 +111,7 @@ func (repo CloudControllerSpaceRepository) ListSpaces(stop chan bool) (spacesCha
 }
 
 func (repo CloudControllerSpaceRepository) FindByName(name string) (space models.Space, apiResponse net.ApiResponse) {
-	return repo.FindByNameInOrg(name, repo.config.OrganizationFields.Guid)
+	return repo.FindByNameInOrg(name, repo.config.OrganizationFields().Guid)
 }
 
 func (repo CloudControllerSpaceRepository) FindByNameInOrg(name, orgGuid string) (space models.Space, apiResponse net.ApiResponse) {
@@ -133,7 +133,7 @@ func (repo CloudControllerSpaceRepository) FindByNameInOrg(name, orgGuid string)
 
 func (repo CloudControllerSpaceRepository) findNextWithPath(path string) (spaces []models.Space, nextUrl string, apiResponse net.ApiResponse) {
 	resources := new(PaginatedSpaceResources)
-	apiResponse = repo.gateway.GetResource(repo.config.Target+path, repo.config.AccessToken, resources)
+	apiResponse = repo.gateway.GetResource(repo.config.ApiEndpoint()+path, repo.config.AccessToken(), resources)
 	if apiResponse.IsNotSuccessful() {
 		return
 	}
@@ -147,10 +147,10 @@ func (repo CloudControllerSpaceRepository) findNextWithPath(path string) (spaces
 }
 
 func (repo CloudControllerSpaceRepository) Create(name string, orgGuid string) (space models.Space, apiResponse net.ApiResponse) {
-	path := fmt.Sprintf("%s/v2/spaces?inline-relations-depth=1", repo.config.Target)
+	path := fmt.Sprintf("%s/v2/spaces?inline-relations-depth=1", repo.config.ApiEndpoint())
 	body := fmt.Sprintf(`{"name":"%s","organization_guid":"%s"}`, name, orgGuid)
 	resource := new(SpaceResource)
-	apiResponse = repo.gateway.CreateResourceForResponse(path, repo.config.AccessToken, strings.NewReader(body), resource)
+	apiResponse = repo.gateway.CreateResourceForResponse(path, repo.config.AccessToken(), strings.NewReader(body), resource)
 	if apiResponse.IsNotSuccessful() {
 		return
 	}
@@ -159,12 +159,12 @@ func (repo CloudControllerSpaceRepository) Create(name string, orgGuid string) (
 }
 
 func (repo CloudControllerSpaceRepository) Rename(spaceGuid, newName string) (apiResponse net.ApiResponse) {
-	path := fmt.Sprintf("%s/v2/spaces/%s", repo.config.Target, spaceGuid)
+	path := fmt.Sprintf("%s/v2/spaces/%s", repo.config.ApiEndpoint(), spaceGuid)
 	body := fmt.Sprintf(`{"name":"%s"}`, newName)
-	return repo.gateway.UpdateResource(path, repo.config.AccessToken, strings.NewReader(body))
+	return repo.gateway.UpdateResource(path, repo.config.AccessToken(), strings.NewReader(body))
 }
 
 func (repo CloudControllerSpaceRepository) Delete(spaceGuid string) (apiResponse net.ApiResponse) {
-	path := fmt.Sprintf("%s/v2/spaces/%s?recursive=true", repo.config.Target, spaceGuid)
-	return repo.gateway.DeleteResource(path, repo.config.AccessToken)
+	path := fmt.Sprintf("%s/v2/spaces/%s?recursive=true", repo.config.ApiEndpoint(), spaceGuid)
+	return repo.gateway.DeleteResource(path, repo.config.AccessToken())
 }

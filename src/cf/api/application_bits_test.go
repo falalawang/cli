@@ -4,12 +4,14 @@ import (
 	"archive/zip"
 	"cf"
 	. "cf/api"
-	"cf/configuration"
 	"cf/models"
 	"cf/net"
 	"fileutils"
 	"fmt"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/assert"
+	mr "github.com/tjarratt/mr_t"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,10 +19,8 @@ import (
 	"strconv"
 	"strings"
 	testapi "testhelpers/api"
+	testconfig "testhelpers/configuration"
 	testnet "testhelpers/net"
-
-	. "github.com/onsi/ginkgo"
-	mr "github.com/tjarratt/mr_t"
 	"time"
 )
 
@@ -45,6 +45,66 @@ func init() {
 		}
 	})
 }
+
+var _ = Describe("ApplicationBitsRepository", func() {
+	Describe("ApplicationBitsRepository", func() {
+		It("TestUploadWithInvalidDirectory", func() {
+			config := testconfig.NewRepository()
+			gateway := net.NewCloudControllerGateway()
+			zipper := &cf.ApplicationZipper{}
+
+			repo := NewCloudControllerApplicationBitsRepository(config, gateway, zipper)
+
+			apiResponse := repo.UploadApp("app-guid", "/foo/bar", func(path string, uploadSize, fileCount uint64) {})
+			Expect(apiResponse.IsNotSuccessful()).To(BeTrue())
+			assert.Contains(mr.T(), apiResponse.Message, filepath.Join("foo", "bar"))
+		})
+		It("TestUploadApp", func() {
+
+			dir, err := os.Getwd()
+			assert.NoError(mr.T(), err)
+			dir = filepath.Join(dir, "../../fixtures/example-app")
+			err = os.Chmod(filepath.Join(dir, "Gemfile"), permissionsToSet)
+
+			assert.NoError(mr.T(), err)
+
+			_, apiResponse := callUploadApp(dir, defaultRequests)
+			Expect(apiResponse.IsSuccessful()).To(BeTrue())
+		})
+		It("TestCreateUploadDirWithAZipFile", func() {
+
+			dir, err := os.Getwd()
+			assert.NoError(mr.T(), err)
+			dir = filepath.Join(dir, "../../fixtures/example-app.zip")
+
+			_, apiResponse := callUploadApp(dir, defaultRequests)
+			Expect(apiResponse.IsSuccessful()).To(BeTrue())
+		})
+		It("TestCreateUploadDirWithAZipLikeFile", func() {
+
+			dir, err := os.Getwd()
+			assert.NoError(mr.T(), err)
+			dir = filepath.Join(dir, "../../fixtures/example-app.azip")
+
+			_, apiResponse := callUploadApp(dir, defaultRequests)
+			Expect(apiResponse.IsSuccessful()).To(BeTrue())
+		})
+		It("TestUploadAppFailsWhilePushingBits", func() {
+
+			dir, err := os.Getwd()
+			assert.NoError(mr.T(), err)
+			dir = filepath.Join(dir, "../../fixtures/example-app")
+
+			requests := []testnet.TestRequest{
+				uploadApplicationRequest,
+				createProgressEndpoint("running"),
+				createProgressEndpoint("failed"),
+			}
+			_, apiResponse := callUploadApp(dir, requests)
+			Expect(apiResponse.IsSuccessful()).To(BeFalse())
+		})
+	})
+})
 
 var uploadApplicationRequest = testapi.NewCloudControllerTestRequest(testnet.TestRequest{
 	Method:  "PUT",
@@ -77,23 +137,23 @@ var uploadBodyMatcher = func(t mr.TestingT, request *http.Request) {
 	}
 	defer request.MultipartForm.RemoveAll()
 
-	assert.Equal(t, len(request.MultipartForm.Value), 1, "Should have 1 value")
+	Expect(len(request.MultipartForm.Value)).To(Equal(1), "Should have 1 value")
 	valuePart, ok := request.MultipartForm.Value["resources"]
 	assert.True(t, ok, "Resource manifest not present")
-	assert.Equal(t, len(valuePart), 1, "Wrong number of values")
+	Expect(len(valuePart)).To(Equal(1), "Wrong number of values")
 
 	resourceManifest := valuePart[0]
 	chompedResourceManifest := strings.Replace(resourceManifest, "\n", "", -1)
-	assert.Equal(t, chompedResourceManifest, "[]", "Resources do not match")
+	Expect(chompedResourceManifest).To(Equal("[]"), "Resources do not match")
 
-	assert.Equal(t, len(request.MultipartForm.File), 1, "Wrong number of files")
+	Expect(len(request.MultipartForm.File)).To(Equal(1), "Wrong number of files")
 
 	fileHeaders, ok := request.MultipartForm.File["application"]
 	assert.True(t, ok, "Application file part not present")
-	assert.Equal(t, len(fileHeaders), 1, "Wrong number of files")
+	Expect(len(fileHeaders)).To(Equal(1), "Wrong number of files")
 
 	applicationFile := fileHeaders[0]
-	assert.Equal(t, applicationFile.Filename, "application.zip", "Wrong file name")
+	Expect(applicationFile.Filename).To(Equal("application.zip"), "Wrong file name")
 
 	file, err := applicationFile.Open()
 	if err != nil {
@@ -113,8 +173,8 @@ var uploadBodyMatcher = func(t mr.TestingT, request *http.Request) {
 		return
 	}
 
-	assert.Equal(t, len(zipReader.File), 5, "Wrong number of files in zip")
-	assert.Equal(t, zipReader.File[0].Mode(), uint32(expectedPermissionBits))
+	Expect(len(zipReader.File)).To(Equal(5), "Wrong number of files in zip")
+	Expect(zipReader.File[0].Mode()).To(Equal(expectedPermissionBits))
 
 nextFile:
 	for _, f := range zipReader.File {
@@ -145,18 +205,16 @@ func createProgressEndpoint(status string) (req testnet.TestRequest) {
 	return
 }
 
-func testUploadApp(t mr.TestingT, dir string, requests []testnet.TestRequest) (app models.Application, apiResponse net.ApiResponse) {
-	ts, handler := testnet.NewTLSServer(t, requests)
+func callUploadApp(dir string, requests []testnet.TestRequest) (app models.Application, apiResponse net.ApiResponse) {
+	ts, handler := testnet.NewTLSServer(GinkgoT(), requests)
 	defer ts.Close()
 
-	config := &configuration.Configuration{
-		AccessToken: "BEARER my_access_token",
-		Target:      ts.URL,
-	}
+	configRepo := testconfig.NewRepositoryWithDefaults()
+	configRepo.SetApiEndpoint(ts.URL)
 	gateway := net.NewCloudControllerGateway()
 	gateway.PollingThrottle = time.Duration(0)
 	zipper := cf.ApplicationZipper{}
-	repo := NewCloudControllerApplicationBitsRepository(config, gateway, zipper)
+	repo := NewCloudControllerApplicationBitsRepository(configRepo, gateway, zipper)
 
 	var (
 		reportedPath                          string
@@ -168,69 +226,9 @@ func testUploadApp(t mr.TestingT, dir string, requests []testnet.TestRequest) (a
 		reportedFileCount = fileCount
 	})
 
-	assert.Equal(t, reportedPath, dir)
-	assert.Equal(t, reportedFileCount, uint64(len(expectedApplicationContent)))
-	assert.Equal(t, reportedUploadSize, uint64(1094))
-	assert.True(t, handler.AllRequestsCalled())
-
+	Expect(reportedPath).To(Equal(dir))
+	Expect(reportedFileCount).To(Equal(uint64(len(expectedApplicationContent))))
+	Expect(reportedUploadSize).To(Equal(uint64(1094)))
+	Expect(handler.AllRequestsCalled()).To(BeTrue())
 	return
-}
-func init() {
-	Describe("Testing with ginkgo", func() {
-		It("TestUploadWithInvalidDirectory", func() {
-			config := &configuration.Configuration{}
-			gateway := net.NewCloudControllerGateway()
-			zipper := &cf.ApplicationZipper{}
-
-			repo := NewCloudControllerApplicationBitsRepository(config, gateway, zipper)
-
-			apiResponse := repo.UploadApp("app-guid", "/foo/bar", func(path string, uploadSize, fileCount uint64) {})
-			assert.True(mr.T(), apiResponse.IsNotSuccessful())
-			assert.Contains(mr.T(), apiResponse.Message, filepath.Join("foo", "bar"))
-		})
-		It("TestUploadApp", func() {
-
-			dir, err := os.Getwd()
-			assert.NoError(mr.T(), err)
-			dir = filepath.Join(dir, "../../fixtures/example-app")
-			err = os.Chmod(filepath.Join(dir, "Gemfile"), permissionsToSet)
-
-			assert.NoError(mr.T(), err)
-
-			_, apiResponse := testUploadApp(mr.T(), dir, defaultRequests)
-			assert.True(mr.T(), apiResponse.IsSuccessful())
-		})
-		It("TestCreateUploadDirWithAZipFile", func() {
-
-			dir, err := os.Getwd()
-			assert.NoError(mr.T(), err)
-			dir = filepath.Join(dir, "../../fixtures/example-app.zip")
-
-			_, apiResponse := testUploadApp(mr.T(), dir, defaultRequests)
-			assert.True(mr.T(), apiResponse.IsSuccessful())
-		})
-		It("TestCreateUploadDirWithAZipLikeFile", func() {
-
-			dir, err := os.Getwd()
-			assert.NoError(mr.T(), err)
-			dir = filepath.Join(dir, "../../fixtures/example-app.azip")
-
-			_, apiResponse := testUploadApp(mr.T(), dir, defaultRequests)
-			assert.True(mr.T(), apiResponse.IsSuccessful())
-		})
-		It("TestUploadAppFailsWhilePushingBits", func() {
-
-			dir, err := os.Getwd()
-			assert.NoError(mr.T(), err)
-			dir = filepath.Join(dir, "../../fixtures/example-app")
-
-			requests := []testnet.TestRequest{
-				uploadApplicationRequest,
-				createProgressEndpoint("running"),
-				createProgressEndpoint("failed"),
-			}
-			_, apiResponse := testUploadApp(mr.T(), dir, requests)
-			assert.False(mr.T(), apiResponse.IsSuccessful())
-		})
-	})
 }
