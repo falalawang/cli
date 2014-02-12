@@ -64,7 +64,8 @@ type ServicePlanEntity struct {
 }
 
 type PaginatedServiceInstanceResources struct {
-	Resources []ServiceInstanceResource
+	TotalResults int `json:"total_results"`
+	Resources    []ServiceInstanceResource
 }
 
 type ServiceInstanceResource struct {
