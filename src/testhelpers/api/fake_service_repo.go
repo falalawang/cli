@@ -29,28 +29,25 @@ type FakeServiceRepo struct {
 	PurgedServiceOffering           models.ServiceOffering
 	PurgeServiceOfferingCalled      bool
 	PurgeServiceOfferingApiResponse net.ApiResponse
-
+	
 	FindServiceOfferingByLabelAndProviderName            string
 	FindServiceOfferingByLabelAndProviderProvider        string
 	FindServiceOfferingByLabelAndProviderServiceOffering models.ServiceOffering
 	FindServiceOfferingByLabelAndProviderApiResponse     net.ApiResponse
 	FindServiceOfferingByLabelAndProviderCalled          bool
-	
-	V1ServicePlanDescription realApi.V1ServicePlanDescription
-	V2ServicePlanDescription realApi.V2ServicePlanDescription
 
-	V1FoundGuid string
-	V2FoundGuid string
-	FindServicePlanToMigrateByDescriptionResponse net.ApiResponse
+	FindServicePlanByDescriptionArguments   []realApi.ServicePlanDescription
+	FindServicePlanByDescriptionResultGuids []string
+	FindServicePlanByDescriptionResponses   []net.ApiResponse
+	findServicePlanByDescriptionCallCount   int
 
 	ServiceInstanceCountForServicePlan int
-	ServiceInstanceCountApiResponse net.ApiResponse
+	ServiceInstanceCountApiResponse    net.ApiResponse
 
-	V1GuidToMigrate string
-	V2GuidToMigrate string
-	MigrateServicePlanFromV1ToV2Called bool
+	V1GuidToMigrate                      string
+	V2GuidToMigrate                      string
+	MigrateServicePlanFromV1ToV2Called   bool
 	MigrateServicePlanFromV1ToV2Response net.ApiResponse
-
 }
 
 func (repo *FakeServiceRepo) GetServiceOfferings() (offerings models.ServiceOfferings, apiResponse net.ApiResponse) {
@@ -112,13 +109,18 @@ func (repo *FakeServiceRepo) RenameService(instance models.ServiceInstance, newN
 	return
 }
 
-func (repo *FakeServiceRepo) FindServicePlanToMigrateByDescription(v1Description realApi.V1ServicePlanDescription, v2Description realApi.V2ServicePlanDescription) (v1PlanGuid, v2PlanGuid string, apiResponse net.ApiResponse) {
-	repo.V1ServicePlanDescription = v1Description
-	repo.V2ServicePlanDescription = v2Description
+func (repo *FakeServiceRepo) FindServicePlanByDescription(planDescription realApi.ServicePlanDescription) (planGuid string, apiResponse net.ApiResponse) {
 
-	v1PlanGuid = repo.V1FoundGuid
-	v2PlanGuid = repo.V2FoundGuid
-	apiResponse = repo.FindServicePlanToMigrateByDescriptionResponse
+	repo.FindServicePlanByDescriptionArguments =
+		append(repo.FindServicePlanByDescriptionArguments, planDescription)
+
+	if len(repo.FindServicePlanByDescriptionResultGuids) > repo.findServicePlanByDescriptionCallCount {
+		planGuid = repo.FindServicePlanByDescriptionResultGuids[repo.findServicePlanByDescriptionCallCount]
+	}
+	if len(repo.FindServicePlanByDescriptionResponses) > repo.findServicePlanByDescriptionCallCount {
+		apiResponse = repo.FindServicePlanByDescriptionResponses[repo.findServicePlanByDescriptionCallCount]
+	}
+	repo.findServicePlanByDescriptionCallCount += 1
 	return
 }
 
@@ -127,7 +129,6 @@ func (repo *FakeServiceRepo) GetServiceInstanceCountForServicePlan(v1PlanGuid st
 	apiResponse = repo.ServiceInstanceCountApiResponse
 	return
 }
-
 
 func (repo *FakeServiceRepo) MigrateServicePlanFromV1ToV2(v1PlanGuid, v2PlanGuid string) (apiResponse net.ApiResponse) {
 	repo.MigrateServicePlanFromV1ToV2Called = true

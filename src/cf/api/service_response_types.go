@@ -43,10 +43,6 @@ type ServiceOfferingEntity struct {
 	ServicePlans     []ServicePlanResource `json:"service_plans"`
 }
 
-type PaginatedServicePlanResources struct {
-	Resources []ServicePlanResource
-}
-
 type ServicePlanResource struct {
 	Metadata Metadata
 	Entity   ServicePlanEntity
